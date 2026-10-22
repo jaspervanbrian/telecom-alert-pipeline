@@ -1,0 +1,5 @@
+pyspark==4.2.0
+delta-spark==4.4.1
+confluent-kafka==2.16.0
+pyarrow>=18.0.0
+requests>=2.32.0
