@@ -39,6 +39,8 @@ services:
     container_name: telecom-ksqldb-cli
     depends_on:
       - ksqldb-server
+    environment:
+      KSQL_OPTS: "-Djava.util.logging.config.file=/dev/null"
     entrypoint: /bin/sh
     tty: true
 
