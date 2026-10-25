@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import pyarrow.parquet as pq
 import requests
@@ -6,6 +7,19 @@ DATASET_ID = "electricsheepafrica/africa-synth-telecom-network-event-logs-nigeri
 PARQUET_API_URL = f"https://huggingface.co/api/datasets/{DATASET_ID}/parquet/default/train"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 OUTPUT_FILE = DATA_DIR / "raw_telecom_events.parquet"
+
+
+def _download_shard(args: tuple[int, int, str]) -> Path:
+    idx, total, url = args
+    shard_path = DATA_DIR / f"shard_{idx:04d}.parquet"
+    print(f"[INFO] Downloading shard {idx + 1}/{total}: {url} ...")
+    with requests.get(url, stream=True, timeout=60) as r:
+        r.raise_for_status()
+        with open(shard_path, "wb") as f:
+            for chunk in r.iter_content(chunk_size=1024 * 1024):
+                if chunk:
+                    f.write(chunk)
+    return shard_path
 
 
 def download_dataset() -> Path:
@@ -23,17 +37,19 @@ def download_dataset() -> Path:
     if not parquet_urls:
         raise RuntimeError(f"No Parquet files found at {PARQUET_API_URL}")
 
-    target_url = parquet_urls[0]
-    print(f"[INFO] Downloading {target_url} -> {OUTPUT_FILE} ...")
+    tasks = [(idx, len(parquet_urls), url) for idx, url in enumerate(parquet_urls)]
+    with ThreadPoolExecutor(max_workers=min(4, len(tasks))) as pool:
+        shard_paths = list(pool.map(_download_shard, tasks))
 
-    with requests.get(target_url, stream=True, timeout=60) as r:
-        r.raise_for_status()
-        with open(OUTPUT_FILE, "wb") as f:
-            for chunk in r.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    f.write(chunk)
+    tables = [pq.read_table(p) for p in shard_paths]
+    pq.write_table(pq.concat_tables(tables), OUTPUT_FILE)
+    for p in shard_paths:
+        p.unlink()
 
-    print(f"[INFO] Download complete ({OUTPUT_FILE.stat().st_size / (1024 * 1024):.2f} MB)")
+    print(
+        f"[INFO] Download complete ({OUTPUT_FILE.stat().st_size / (1024 * 1024):.2f} MB "
+        f"across {len(parquet_urls)} shard(s))"
+    )
     return OUTPUT_FILE
 
 
