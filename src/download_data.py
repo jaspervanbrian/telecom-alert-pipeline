@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import pyarrow as pa
 import pyarrow.parquet as pq
 import requests
 
@@ -42,7 +43,7 @@ def download_dataset() -> Path:
         shard_paths = list(pool.map(_download_shard, tasks))
 
     tables = [pq.read_table(p) for p in shard_paths]
-    pq.write_table(pq.concat_tables(tables), OUTPUT_FILE)
+    pq.write_table(pa.concat_tables(tables), OUTPUT_FILE)
     for p in shard_paths:
         p.unlink()
 
